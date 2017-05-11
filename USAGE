@@ -1,0 +1,27 @@
+domainage.py Usage Instructions
+
+domainage will search through DNS names to look for newly registered
+entries. Newly registered is defined as <1 year old. These may be
+indicative of malicious sites.
+
+-d $DNSname
+This is "interactive" usage. You pass it a single DNS name and
+domainage.py will process it.
+
+-f $filename
+This will process a file with a list of domains, one domain per line.
+For example: I want to process logs from bro this way. I'll decompress
+them, use bro-cut to only output the DNS query, get rid of some I
+don't care about, and finally deduplicate the output:
+zcat /nsm/bro/logs/2017-05-06/dns.* | bro-cut -d query | grep -vi -e
+\x00 -e \.local$ -e \.arpa$ | sort -u > dns.log
+./domainage.py -f dns.log
+
+-b $brolog
+This option takes a dns.log file from bro and processes each domain.
+For example:
+zcat /nsm/bro/logs/2017-05-06/dns.22\:00\:00-23\:00\:00.log.gz > bro-dns.log
+./domainage.py -b bro-dns.log
+
+
+Thanks to markjx (https://github.com/markjx) for the text.

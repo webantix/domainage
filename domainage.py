@@ -28,6 +28,7 @@ print ''
 # Are the required Python libraries installed?
 from datetime import * #Get date and delta
 import sys #To collect command line arguments
+import signal #To collect Ctrl-C exit
 import optparse #To handle the options
 try:
     import whois #To do the whois lookup
@@ -47,6 +48,17 @@ parser.add_option('-b', dest='bro', help='Use a Bro IDS DNS log file.')
 (options, args) = parser.parse_args()
 #Set variables
 
+'''
+## Handle Ctrl-C github-issue #3
+def signal_handler(signal, frame):
+        print('You pressed Ctrl+C!')
+        sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+print('Press Ctrl+C')
+signal.pause()
+
+'''
+
 
 def main():
 #Set Variable
@@ -64,6 +76,7 @@ def main():
         print bcolors.OKBLUE + ' [-]' + bcolors.ENDC + ' domainage.py -d webantix.net (no output file)'
         print bcolors.OKBLUE + ' [-]' + bcolors.ENDC + ' domainage.py -b /nsm/bro/log/dns.log'
         print ''
+        exit()
     analyse(d)
 
 
@@ -131,7 +144,7 @@ def analyse(d):
             if len(ii) > 3 and '.' in ii: #Is the domain name long enough and have a dot.
                 try:
                     w = whois.whois(ii)
-        # Compare dates between now and creation dates
+                    # Compare dates between now and creation dates
                     d1 = w.creation_date
                     if d1:
                         if isinstance(d1, list): #true
@@ -150,12 +163,18 @@ def analyse(d):
                     else:
                         print bcolors.WARNING + ' [!]' + bcolors.ENDC + ' That\'s weird looks like the Creation date is blank. You may need to do ' + ii + ' manually.[' + w + ']'
                         #print bcolors.WARNING + ' [!]' + bcolors.ENDC + ' If creation date available in normal whois raise an issue on github. https://github.com/webantix/domainage/issues'
-
+                except KeyboardInterrupt:
+                    print ''
+                    print 'Leaving so early =('
+                    sys.exit()
+                except (whois.parser.PywhoisError):
+                    print ' %s[!]%s %s does not look to be registered.' % (bcolors.FAIL, bcolors.ENDC, ii)
                 except:
                     e = sys.exc_info()
                     error = str(e)
                     print ' %s[!]%s An error happened with %s. Please manually follow this up.' % (bcolors.WARNING, bcolors.ENDC, ii)
-                    print e
+                    #print e
+
 
         print bcolors.OKBLUE + ' [-]' + bcolors.ENDC + ' Analysis complete.'
     if not options.domain:
