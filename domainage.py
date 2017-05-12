@@ -20,7 +20,7 @@ print bcolors.HEADER + """
  / _` |/ _ \| '_ ` _ \ / _` | | '_ \ / _` |/ _` |/ _ \\
 | (_| | (_) | | | | | | (_| | | | | | (_| | (_| |  __/
  \__,_|\___/|_| |_| |_|\__,_|_|_| |_|\__,_|\__, |\___|
-                                            __/ | v1.3
+                                            __/ | v1.4
                                            |___/       """ + bcolors.ENDC
 print ''
 print 'DNS threat hunting tool by Duncan \'Webantix\' Alderson.'
@@ -138,7 +138,6 @@ def analyse(d):
         alexa_exist = os.path.isfile('top-1m.csv')
         if alexa_exist:
             # How old is the list? Over 7 days old, down load new.
-            t1 = time.time()
             t2 = os.path.getmtime('top-1m.csv')
             if t1 - t2 < 604800:
                 print ' %s[-]%s Alexa file is under 7 days old. We will use this one.' % (bcolors.OKBLUE, bcolors.ENDC)
