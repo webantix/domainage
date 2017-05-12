@@ -20,16 +20,21 @@ print bcolors.HEADER + """
  / _` |/ _ \| '_ ` _ \ / _` | | '_ \ / _` |/ _` |/ _ \\
 | (_| | (_) | | | | | | (_| | | | | | (_| | (_| |  __/
  \__,_|\___/|_| |_| |_|\__,_|_|_| |_|\__,_|\__, |\___|
-                                            __/ | v1.2
+                                            __/ | v1.3
                                            |___/       """ + bcolors.ENDC
 print ''
 print 'DNS threat hunting tool by Duncan \'Webantix\' Alderson.'
 print ''
 # Are the required Python libraries installed?
 from datetime import * #Get date and delta
+import time #To be able to compare file age with time now
 import sys #To collect command line arguments
 import signal #To collect Ctrl-C exit
 import optparse #To handle the options
+import urllib2 #Be able to download top million list
+import zipfile #be able to unzip download
+import logging #To handle tldextract logging (issue:4)
+import os.path #To check if file exists
 try:
     import whois #To do the whois lookup
 except ImportError:
@@ -37,6 +42,7 @@ except ImportError:
     exit()
 try:
     import tldextract
+    from tldextract.tldextract import LOG #To handle tldextract logging (issue:4)
 except ImportError:
     print 'You will need to type \"sudo pip install tldextract\" for this to work.'
     exit()
@@ -46,23 +52,13 @@ parser.add_option('-d', dest='domain', help='Use with a single domain name')
 parser.add_option('-f', dest='file', help='Use a file with a domain name on each line.')
 parser.add_option('-b', dest='bro', help='Use a Bro IDS DNS log file.')
 (options, args) = parser.parse_args()
-#Set variables
-
-'''
-## Handle Ctrl-C github-issue #3
-def signal_handler(signal, frame):
-        print('You pressed Ctrl+C!')
-        sys.exit(0)
-signal.signal(signal.SIGINT, signal_handler)
-print('Press Ctrl+C')
-signal.pause()
-
-'''
-
+# Set logging level to handle tldextract error
+logging.basicConfig(level=logging.CRITICAL) #To handle tldextract logging (issue:4)
 
 def main():
 #Set Variable
-    d = None
+    d = None # Domain holder
+
 #Collect option flag set
     if options.domain:
         d = get_domain_list()
@@ -111,8 +107,19 @@ def get_bro_log():
                 d.append(line)
     return(d)
 
+def download_alexa():
+    # Download and unzip Alexa
+    download = urllib2.urlopen('http://s3.amazonaws.com/alexa-static/top-1m.csv.zip')
+    with open('top-1m.csv.zip','wb') as output:
+        output.write(download.read())
+    print ' %s[!]%s Alexa downloaded. Extracting.' % (bcolors.WARNING, bcolors.ENDC)
+    zip = zipfile.ZipFile('top-1m.csv.zip', 'r')
+    zip.extractall('./')
+    zip.close()
+    print ' %s[!]%s Alexa extracted.' % (bcolors.WARNING, bcolors.ENDC)
 
 def analyse(d):
+    c = 0 # Count holder
     # Get today's date to get delta
     today = datetime.now()
     # Start creating log file
@@ -122,20 +129,58 @@ def analyse(d):
 
     # Do whois lookup
     if d:
-        print bcolors.OKBLUE + ' [-] ' + bcolors.ENDC + 'Starting analysis'
+        t1 = time.time() #Time for percentage counter and Alexa age compare
+        # Tell user how many unique domians are in file
+        print ' %s[-]%s Starting analysis on %s domain names.' % (bcolors.OKBLUE, bcolors.ENDC, len(d))
+        # Check to see if it is in the Alexa list
+        print ' %s[-]%s Loading Alexa top million.' % (bcolors.OKBLUE, bcolors.ENDC)
+        # Does Alexa file exist?
+        alexa_exist = os.path.isfile('top-1m.csv')
+        if alexa_exist:
+            # How old is the list? Over 7 days old, down load new.
+            t1 = time.time()
+            t2 = os.path.getmtime('top-1m.csv')
+            if t1 - t2 < 604800:
+                print ' %s[-]%s Alexa file is under 7 days old. We will use this one.' % (bcolors.OKBLUE, bcolors.ENDC)
+            else:
+                print ' %s[!]%s Alexa file is old. Downloading new file now.' % (bcolors.WARNING, bcolors.ENDC)
+                download_alexa()
+        else:
+            print ' %s[!]%s No Alexa file found. Downloading now.' % (bcolors.WARNING, bcolors.ENDC)
+            download_alexa()
+        alexa = open('top-1m.csv').read()
+        print ' %s[-]%s Alexa succesfully loaded.' % (bcolors.OKBLUE, bcolors.ENDC)
+
         for i in d:
+            if time.time() - t1 > 10:
+                percent = 100 * float(c) / float(len(d))
+                print ' %s[-]%s %s%% complete.' % (bcolors.OKBLUE, bcolors.ENDC, int(percent))
+                t1 = time.time()
+            c = c + 1
             dom = tldextract.extract(i) #load string into TLD Extract
             ii = dom.registered_domain #replace string with registered domain to query
+
+
+            # is domain in Alexa
+            a = ii in alexa
+            if a:
+                if not options.domain:
+                    fo.write('%s;%s;-;-;This domain is found in the Alexa top Million list. Most likely not malicous.\n' % (today, ii))
+                # print ' %s[+]%s %s is found in the Alexa top Million list. Most likely not malicous.' % (bcolors.OKBLUE, bcolors.ENDC, ii)
+                continue
+            # is domain a .GOV? If so skip
             if dom.suffix == 'gov':
                 if not options.domain:
                     fo.write('%s;%s;-;-;This domain is hosted on the the GOV Whois server which has no creation date.\n' % (today, ii))
                 print ' %s[!]%s %s is hosted on the the GOV Whois server which has no creation date.' % (bcolors.WARNING, bcolors.ENDC, ii)
                 continue
+            # is domain a .TO? If so skip
             if dom.suffix == 'to':
                 if not options.domain:
                     fo.write('%s;%s;-;-;This domain is hosted on the the Tonic (Tongan) Whoisd server which has no information.\n' % (today, ii))
                 print ' %s[!]%s %s is hosted on the the Tonic (Tongan) Whoisd server which has no information.' % (bcolors.WARNING, bcolors.ENDC, ii)
                 continue
+            # is domain a .IO? If so skip
             if dom.suffix == 'io':
                 if not options.domain:
                     fo.write('%s;%s;-;-;This domain is hosted on the the IO Whois server which has no creation date.\n' % (today, ii))
@@ -153,7 +198,7 @@ def analyse(d):
                             d2 = (today-d1)
                         d3 = d2.days / 365
                         if d3 >= 1:
-                            print bcolors.OKBLUE + ' [+] ' + bcolors.ENDC + ii + ' is ' + str(d3) + ' years old'
+                            #print bcolors.OKBLUE + ' [+] ' + bcolors.ENDC + ii + ' is ' + str(d3) + ' years old'
                             if not options.domain:
                                 fo.write(str(today) + ';' + str(ii) + ';' + str(d1) + ';' + str(d3) + ';' + '\n');
                         else:
@@ -163,6 +208,7 @@ def analyse(d):
                     else:
                         print bcolors.WARNING + ' [!]' + bcolors.ENDC + ' That\'s weird looks like the Creation date is blank. You may need to do ' + ii + ' manually.[' + w + ']'
                         #print bcolors.WARNING + ' [!]' + bcolors.ENDC + ' If creation date available in normal whois raise an issue on github. https://github.com/webantix/domainage/issues'
+
                 except KeyboardInterrupt:
                     print ''
                     print 'Leaving so early =('
